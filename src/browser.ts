@@ -13,8 +13,7 @@
  * Playwright is kept only for its context/page TYPES — CloakBrowser's context is
  * API-compatible.
  */
-import { launchPersistentContext } from 'cloakbrowser';
-import type { BrowserContext, Page } from 'playwright';
+import { chromium, type BrowserContext, type Page } from 'playwright';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -36,9 +35,26 @@ export class NotLoggedInError extends Error {
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
+/**
+ * Browser engine. Default `playwright` = stock Playwright Chromium (no third-party
+ * binary). `cloak` = upstream's CloakBrowser (fingerprint-patched Chromium), loaded
+ * lazily so it is only installed/downloaded if stock Chromium gets bot-blocked.
+ */
+const ENGINE = process.env.EBAY_MCP_ENGINE || 'playwright';
+
 async function launch(headless: boolean): Promise<BrowserContext> {
-  // CloakBrowser ships its own fingerprint-patched Chromium, so there is no
-  // separate `playwright install` step and no Chrome-channel fallback to manage.
+  if (ENGINE === 'playwright') {
+    // No UA override: a spoofed Windows/Chrome-124 UA on a Linux Chrome-149 build
+    // mismatches the client hints, which is itself a bot signal. Run headed (under
+    // Xvfb on the server) so the native UA carries no "HeadlessChrome" token.
+    return chromium.launchPersistentContext(PROFILE_DIR, {
+      headless,
+      viewport: { width: 1280, height: 900 },
+      args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled'],
+    });
+  }
+  const cloak = 'cloakbrowser';
+  const { launchPersistentContext } = await import(cloak);
   return (await launchPersistentContext({
     userDataDir: PROFILE_DIR,
     headless,
@@ -64,6 +80,13 @@ export class EbaySession {
     if (!this.startPromise) {
       this.startPromise = (async () => {
         this.ctx = await launch(this.headless);
+        // If the browser dies (crash, OOM, killed for a re-login), drop the handle so
+        // the next call relaunches instead of failing forever on a dead context.
+        this.ctx.on('close', () => {
+          this.ctx = null;
+          this.page = null;
+          this.startPromise = null;
+        });
         // Fail fast instead of hanging if a bot-challenge page never settles.
         this.ctx.setDefaultNavigationTimeout(45_000);
         this.page = this.ctx.pages()[0] ?? (await this.ctx.newPage());
@@ -84,7 +107,8 @@ export class EbaySession {
 
   private async ensureReady(): Promise<void> {
     await this.start();
-    const page = this.page!;
+    if (!this.page || this.page.isClosed()) this.page = await this.ctx!.newPage();
+    const page = this.page;
     if (!page.url().startsWith('https://www.ebay.com/sh/research')) {
       await page.goto(RESEARCH_URL, { waitUntil: 'domcontentloaded' });
     }
@@ -159,10 +183,11 @@ export async function loginInteractive(): Promise<void> {
     '\nA browser window has opened.\n' +
       '  1. Sign into your eBay account (complete any 2FA).\n' +
       "  2. Wait until the 'Research products' page loads.\n" +
-      'Waiting up to 5 minutes for sign-in...\n',
+      'Waiting for sign-in...\n',
   );
 
-  const deadline = Date.now() + 5 * 60 * 1000;
+  const minutes = Number(process.env.EBAY_LOGIN_TIMEOUT_MIN || 5);
+  const deadline = Date.now() + minutes * 60 * 1000;
   let ok = false;
   while (Date.now() < deadline) {
     const url = page.url();

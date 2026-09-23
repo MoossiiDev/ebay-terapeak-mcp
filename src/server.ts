@@ -6,6 +6,8 @@
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import http from 'node:http';
 import { z } from 'zod';
 import { EbaySession, NotLoggedInError } from './browser.js';
 import { runSearch, type SearchOpts, type Tab } from './core.js';
@@ -140,7 +142,7 @@ function toError(e: unknown) {
   return { content: [{ type: 'text' as const, text: msg }], isError: true };
 }
 
-export async function startServer(): Promise<void> {
+function buildServer(): McpServer {
   const server = new McpServer({
     name: 'ebay-research-mcp',
     version: '0.2.0',
@@ -196,9 +198,77 @@ export async function startServer(): Promise<void> {
     },
   );
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error('ebay-research-mcp server running on stdio.');
+  return server;
+}
+
+function readBody(req: http.IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (c) => (data += c));
+    req.on('end', () => {
+      try {
+        resolve(data ? JSON.parse(data) : undefined);
+      } catch (e) {
+        reject(e);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+/**
+ * HTTP mode (EBAY_MCP_PORT set): one long-lived daemon owns the single browser
+ * profile, so any number of Claude sessions share it (a Chromium profile can only
+ * be opened by one process — per-session stdio servers would collide). Stateless
+ * Streamable HTTP: a fresh McpServer per request, one shared EbaySession.
+ * GET /health -> {loggedIn} for the watchdog/statusline.
+ */
+async function startHttp(port: number): Promise<void> {
+  const host = process.env.EBAY_MCP_HOST || '127.0.0.1';
+  const httpServer = http.createServer(async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', `http://${host}`);
+      if (url.pathname === '/health' && req.method === 'GET') {
+        const loggedIn = await getSession().isLoggedIn();
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, loggedIn }));
+        return;
+      }
+      if (url.pathname !== '/mcp') {
+        res.writeHead(404).end();
+        return;
+      }
+      if (req.method !== 'POST') {
+        res.writeHead(405, { allow: 'POST' }).end();
+        return;
+      }
+      const body = await readBody(req);
+      const server = buildServer();
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      res.on('close', () => {
+        transport.close().catch(() => {});
+        server.close().catch(() => {});
+      });
+      await server.connect(transport);
+      await transport.handleRequest(req, res, body);
+    } catch (e) {
+      console.error(e);
+      if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: e instanceof Error ? e.message : String(e) }));
+    }
+  });
+  await new Promise<void>((r) => httpServer.listen(port, host, r));
+  console.error(`ebay-research-mcp server running on http://${host}:${port}/mcp`);
+}
+
+export async function startServer(): Promise<void> {
+  const port = Number(process.env.EBAY_MCP_PORT || 0);
+  if (port) {
+    await startHttp(port);
+  } else {
+    await buildServer().connect(new StdioServerTransport());
+    console.error('ebay-research-mcp server running on stdio.');
+  }
 
   const shutdown = async () => {
     await session?.close().catch(() => {});

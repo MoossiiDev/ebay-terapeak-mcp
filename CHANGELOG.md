@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0/). For **how** we version, tag, and publish, see [docs/RELEASES.md](./docs/RELEASES.md).
 
+## [Unreleased] — MoossiiDev fork
+
+### Added
+- HTTP daemon mode (`EBAY_MCP_PORT`): stateless Streamable HTTP on 127.0.0.1, one long-lived browser shared by every MCP client (a Chromium profile can only be opened by one process). `GET /health` returns `{ok, loggedIn}`.
+- `EBAY_MCP_ENGINE` switch: `playwright` (default, stock Chromium) or `cloak` (upstream CloakBrowser, now an optional dependency loaded lazily).
+- Dead-browser recovery: a closed context/page is dropped and relaunched on the next call.
+- `login.sh`: stops the service, opens a headed login on DISPLAY=:0, restarts the service. `EBAY_LOGIN_TIMEOUT_MIN` sets the wait.
+
+### Changed
+- Stock engine sends no spoofed User-Agent (a Windows/Chrome-124 string on Linux Chrome 149 mismatches client hints). Runs headed under Xvfb instead of headless.
+
 ## [Unreleased]
 
 ## [0.2.1] - 2026-07-21

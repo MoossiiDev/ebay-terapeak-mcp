@@ -1,5 +1,7 @@
 # ebay-terapeak-mcp
 
+> **MoossiiDev fork.** Runs as an always-on systemd user service (`ebay-mcp.service`, HTTP on `127.0.0.1:9111/mcp`) with stock Playwright Chromium under Xvfb, shared by all Claude sessions. Log in / re-login: `./login.sh` (opens on the server desktop, reach it over RDP). Health: `curl 127.0.0.1:9111/health`. See CHANGELOG `[Unreleased]`.
+
 [![npm](https://img.shields.io/npm/v/@bintangtimurlangit/ebay-terapeak-mcp?style=flat-square)](https://www.npmjs.com/package/@bintangtimurlangit/ebay-terapeak-mcp)
 [![license](https://img.shields.io/github/license/bintangtimurlangit/ebay-terapeak-mcp?style=flat-square)](./LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/bintangtimurlangit/ebay-terapeak-mcp/ci.yml?branch=main&style=flat-square)](https://github.com/bintangtimurlangit/ebay-terapeak-mcp/actions)
