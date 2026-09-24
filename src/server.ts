@@ -186,7 +186,7 @@ function buildServer(): McpServer {
       'what a listing actually says (e.g. mods, included accessories, flaws) that ' +
       'search titles leave out. One page load per call; keep volume modest.',
     {
-      item_id: z.string().describe('eBay item id (the number in /itm/<id>).'),
+      item_id: z.string().regex(/^\d{6,20}$/, 'item_id must be digits only').describe('eBay item id (the number in /itm/<id>).'),
       max_chars: z.number().int().min(200).max(20000).default(4000).describe('Truncate description text.'),
     },
     async (args) => {

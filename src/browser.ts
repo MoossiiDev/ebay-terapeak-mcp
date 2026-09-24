@@ -167,6 +167,8 @@ export class EbaySession {
    * context's request client (shares cookies, not subject to page CORS).
    */
   async fetchItem(itemId: string): Promise<{ html: string; descHtml: string | null; status: number }> {
+    // Digits only: the id is interpolated into a URL and a debug file path.
+    if (!/^\d{6,20}$/.test(itemId)) throw new Error(`Invalid eBay item id: ${itemId}`);
     return this.run(async () => {
       await this.ensureReady();
       const res = await this.page!.evaluate(async (u: string) => {
