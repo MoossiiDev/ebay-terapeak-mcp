@@ -160,6 +160,34 @@ export class EbaySession {
     });
   }
 
+  /**
+   * Fetch an eBay item page (live or ended) plus its seller description. The item
+   * page is fetched in-page (carries the browser fingerprint that plain HTTP lacks);
+   * the description lives on a separate ebaydesc.com iframe URL, fetched through the
+   * context's request client (shares cookies, not subject to page CORS).
+   */
+  async fetchItem(itemId: string): Promise<{ html: string; descHtml: string | null; status: number }> {
+    return this.run(async () => {
+      await this.ensureReady();
+      const res = await this.page!.evaluate(async (u: string) => {
+        const r = await fetch(u, { credentials: 'include' });
+        return { status: r.status, body: await r.text() };
+      }, `https://www.ebay.com/itm/${encodeURIComponent(itemId)}`);
+      const m = res.body.match(/https:\/\/[a-z.]*ebaydesc\.com\/(?:itmdesc|ws)\/[^\s"'>]+/);
+      let descHtml: string | null = null;
+      if (m) {
+        const url = m[0].replace(/&amp;/g, '&');
+        const d = await this.ctx!.request.get(url, { timeout: 30_000 }).catch(() => null);
+        if (d && d.ok()) descHtml = await d.text();
+      }
+      if (process.env.EBAY_MCP_DEBUG_DIR) {
+        const fs = await import('node:fs');
+        fs.writeFileSync(`${process.env.EBAY_MCP_DEBUG_DIR}/item-${itemId}.html`, res.body);
+      }
+      return { html: res.body, descHtml, status: res.status };
+    });
+  }
+
   async close(): Promise<void> {
     await this.ctx?.close();
     this.ctx = null;

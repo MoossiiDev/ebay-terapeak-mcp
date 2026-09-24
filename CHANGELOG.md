@@ -7,6 +7,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 ## [Unreleased] — MoossiiDev fork
 
 ### Added
+- `get_item` tool: reads any item page (live or ended/sold) in the logged-in browser and returns title, status, price, condition, and seller description text (from the itm.ebaydesc.com iframe). eBay drops ended-listing descriptions after roughly 90 days, and only the summary is returned then. `EBAY_MCP_DEBUG_DIR` dumps raw item HTML for selector fixes.
 - HTTP daemon mode (`EBAY_MCP_PORT`): stateless Streamable HTTP on 127.0.0.1, one long-lived browser shared by every MCP client (a Chromium profile can only be opened by one process). `GET /health` returns `{ok, loggedIn}`.
 - `EBAY_MCP_ENGINE` switch: `playwright` (default, stock Chromium) or `cloak` (upstream CloakBrowser, now an optional dependency loaded lazily).
 - Dead-browser recovery: a closed context/page is dropped and relaunched on the next call.

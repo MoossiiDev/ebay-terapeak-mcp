@@ -11,6 +11,7 @@ import http from 'node:http';
 import { z } from 'zod';
 import { EbaySession, NotLoggedInError } from './browser.js';
 import { runSearch, type SearchOpts, type Tab } from './core.js';
+import { getItem } from './item.js';
 
 let session: EbaySession | null = null;
 function getSession(): EbaySession {
@@ -172,6 +173,25 @@ function buildServer(): McpServer {
     async (args) => {
       try {
         return toContent(await runSearch(toOpts(args as SearchArgs, 'ACTIVE'), getSession()));
+      } catch (e) {
+        return toError(e);
+      }
+    },
+  );
+
+  server.tool(
+    'get_item',
+    'Fetch one eBay item page (live OR ended/sold) by item id and return title, ' +
+      'status, price, condition, and the seller description text. Use it to read ' +
+      'what a listing actually says (e.g. mods, included accessories, flaws) that ' +
+      'search titles leave out. One page load per call; keep volume modest.',
+    {
+      item_id: z.string().describe('eBay item id (the number in /itm/<id>).'),
+      max_chars: z.number().int().min(200).max(20000).default(4000).describe('Truncate description text.'),
+    },
+    async (args) => {
+      try {
+        return toContent(await getItem(args.item_id, getSession(), args.max_chars));
       } catch (e) {
         return toError(e);
       }
