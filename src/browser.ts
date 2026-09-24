@@ -72,6 +72,8 @@ export class EbaySession {
   /** Serializes access to the single shared page so overlapping tool calls
    *  don't navigate/fetch on top of each other. */
   private chain: Promise<unknown> = Promise.resolve();
+  /** Login state observed by the last REAL request (null = none yet). */
+  private lastKnown: { loggedIn: boolean; at: number } | null = null;
 
   constructor(private headless = true) {}
 
@@ -113,6 +115,7 @@ export class EbaySession {
       await page.goto(RESEARCH_URL, { waitUntil: 'domcontentloaded' });
     }
     if (page.url().includes('signin.ebay.com')) {
+      this.lastKnown = { loggedIn: false, at: Date.now() };
       throw new NotLoggedInError(
         'eBay session is not authenticated. Run `npm run login` (with the MCP ' +
           'server stopped) to sign in, then retry.',
@@ -150,12 +153,14 @@ export class EbaySession {
       }, url);
 
       if (!res.contentType.includes('application/json')) {
+        this.lastKnown = { loggedIn: false, at: Date.now() };
         throw new NotLoggedInError(
           `eBay returned a non-JSON response (HTTP ${res.status}). The session ` +
             'is likely stale or bot detection triggered. Run `npm run login` to ' +
             'refresh it.',
         );
       }
+      this.lastKnown = { loggedIn: true, at: Date.now() };
       return res.body;
     });
   }
@@ -187,6 +192,23 @@ export class EbaySession {
         fs.writeFileSync(`${process.env.EBAY_MCP_DEBUG_DIR}/item-${itemId}.html`, res.body);
       }
       return { html: res.body, descHtml, status: res.status };
+    });
+  }
+
+  /**
+   * LOCAL-ONLY login check for the watchdog/statusline: never sends a request to
+   * eBay (feedback_no_synthetic_health_probes: automated probe traffic on a logged-in
+   * seat is a bot signature). Combines the persistent `ebaysid` login cookie (present
+   * and unexpired) with the outcome of the last REAL request. A session eBay revoked
+   * server-side is caught on the next real use, which flips lastKnown to false.
+   */
+  async localStatus(): Promise<{ loggedIn: boolean; cookie: boolean; lastKnown: { loggedIn: boolean; at: number } | null }> {
+    return this.run(async () => {
+      await this.start();
+      const now = Date.now() / 1000;
+      const cs = await this.ctx!.cookies('https://www.ebay.com');
+      const cookie = cs.some((c) => c.name === 'ebaysid' && (c.expires < 0 || c.expires > now));
+      return { loggedIn: cookie && this.lastKnown?.loggedIn !== false, cookie, lastKnown: this.lastKnown };
     });
   }
 

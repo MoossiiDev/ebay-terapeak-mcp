@@ -14,6 +14,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 - `login.sh`: stops the service, opens a headed login on DISPLAY=:0, restarts the service. `EBAY_LOGIN_TIMEOUT_MIN` sets the wait.
 
 ### Changed
+- `GET /health` is local-only: `ebaysid` cookie + last real request outcome; it no longer loads Seller Hub (a probe that navigates generates bot-like traffic on the account every 10 min). `session_status` stays the explicit live check.
 - Stock engine sends no spoofed User-Agent (a Windows/Chrome-124 string on Linux Chrome 149 mismatches client hints). Runs headed under Xvfb instead of headless.
 
 ## [Unreleased]

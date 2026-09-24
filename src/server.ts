@@ -200,8 +200,9 @@ function buildServer(): McpServer {
 
   server.tool(
     'session_status',
-    'Check whether the Playwright browser profile is currently signed into eBay ' +
-      'Seller Hub. If not logged in, run `npm run login` (with the server stopped).',
+    'LIVE check (loads Seller Hub once) of whether the profile is signed into eBay. ' +
+      'Only call when a real search failed or the user asks; routine health uses the ' +
+      'local-only GET /health. If not logged in, run login.sh.',
     {},
     async () => {
       try {
@@ -241,7 +242,7 @@ function readBody(req: http.IncomingMessage): Promise<unknown> {
  * profile, so any number of Claude sessions share it (a Chromium profile can only
  * be opened by one process — per-session stdio servers would collide). Stateless
  * Streamable HTTP: a fresh McpServer per request, one shared EbaySession.
- * GET /health -> {loggedIn} for the watchdog/statusline.
+ * GET /health -> {ok, loggedIn, cookie, lastKnown}: LOCAL-ONLY (never contacts eBay).
  */
 async function startHttp(port: number): Promise<void> {
   const host = process.env.EBAY_MCP_HOST || '127.0.0.1';
@@ -249,9 +250,10 @@ async function startHttp(port: number): Promise<void> {
     try {
       const url = new URL(req.url ?? '/', `http://${host}`);
       if (url.pathname === '/health' && req.method === 'GET') {
-        const loggedIn = await getSession().isLoggedIn();
+        // Local-only (no request to eBay) — see EbaySession.localStatus.
+        const st = await getSession().localStatus();
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, loggedIn }));
+        res.end(JSON.stringify({ ok: true, ...st }));
         return;
       }
       if (url.pathname !== '/mcp') {
