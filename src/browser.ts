@@ -24,6 +24,11 @@ const SEARCH_API = 'https://www.ebay.com/sh/research/api/search';
 export const PROFILE_DIR =
   process.env.EBAY_MCP_PROFILE || path.join(os.homedir(), '.ebay-research-mcp', 'profile');
 
+/** How to recover, appended to every NotLoggedInError message. */
+export const LOGIN_HINT =
+  'Re-login: run ./login.sh (stops the service, opens a sign-in window, restarts it), ' +
+  'or `npm run login` with the server stopped.';
+
 /** Thrown when the session isn't authenticated (or got logged out). */
 export class NotLoggedInError extends Error {
   constructor(message: string) {
@@ -50,7 +55,11 @@ async function launch(headless: boolean): Promise<BrowserContext> {
     return chromium.launchPersistentContext(PROFILE_DIR, {
       headless,
       viewport: { width: 1280, height: 900 },
-      args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled'],
+      args: [
+        '--no-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-blink-features=AutomationControlled',
+      ],
     });
   }
   const cloak = 'cloakbrowser';
@@ -116,19 +125,19 @@ export class EbaySession {
     }
     if (page.url().includes('signin.ebay.com')) {
       this.lastKnown = { loggedIn: false, at: Date.now() };
-      throw new NotLoggedInError(
-        'eBay session is not authenticated. Run `npm run login` (with the MCP ' +
-          'server stopped) to sign in, then retry.',
-      );
+      throw new NotLoggedInError(`eBay session is not authenticated. ${LOGIN_HINT}`);
     }
   }
 
-  /** True if the stored profile is currently logged into Seller Hub. */
+  /** LIVE check (loads Seller Hub once): true if the profile is logged in. Records
+   *  the outcome in lastKnown so /health reflects it. */
   async isLoggedIn(): Promise<boolean> {
     return this.run(async () => {
       await this.start();
       await this.page!.goto(RESEARCH_URL, { waitUntil: 'domcontentloaded' });
-      return !this.page!.url().includes('signin.ebay.com');
+      const loggedIn = !this.page!.url().includes('signin.ebay.com');
+      this.lastKnown = { loggedIn, at: Date.now() };
+      return loggedIn;
     });
   }
 
@@ -156,10 +165,11 @@ export class EbaySession {
         this.lastKnown = { loggedIn: false, at: Date.now() };
         throw new NotLoggedInError(
           `eBay returned a non-JSON response (HTTP ${res.status}). The session ` +
-            'is likely stale or bot detection triggered. Run `npm run login` to ' +
-            'refresh it.',
+            `is likely stale or bot detection triggered. ${LOGIN_HINT}`,
         );
       }
+      // JSON alone does not prove the login: a session eBay revoked server-side still
+      // gets JSON, just with no aggregates and no rows. runSearch live-checks that case.
       this.lastKnown = { loggedIn: true, at: Date.now() };
       return res.body;
     });
@@ -171,15 +181,20 @@ export class EbaySession {
    * the description lives on a separate ebaydesc.com iframe URL, fetched through the
    * context's request client (shares cookies, not subject to page CORS).
    */
-  async fetchItem(itemId: string): Promise<{ html: string; descHtml: string | null; status: number }> {
+  async fetchItem(
+    itemId: string,
+  ): Promise<{ html: string; descHtml: string | null; status: number }> {
     // Digits only: the id is interpolated into a URL and a debug file path.
     if (!/^\d{6,20}$/.test(itemId)) throw new Error(`Invalid eBay item id: ${itemId}`);
     return this.run(async () => {
       await this.ensureReady();
-      const res = await this.page!.evaluate(async (u: string) => {
-        const r = await fetch(u, { credentials: 'include' });
-        return { status: r.status, body: await r.text() };
-      }, `https://www.ebay.com/itm/${encodeURIComponent(itemId)}`);
+      const res = await this.page!.evaluate(
+        async (u: string) => {
+          const r = await fetch(u, { credentials: 'include' });
+          return { status: r.status, body: await r.text() };
+        },
+        `https://www.ebay.com/itm/${encodeURIComponent(itemId)}`,
+      );
       const m = res.body.match(/https:\/\/[a-z.]*ebaydesc\.com\/(?:itmdesc|ws)\/[^\s"'>]+/);
       let descHtml: string | null = null;
       if (m) {
@@ -202,13 +217,21 @@ export class EbaySession {
    * and unexpired) with the outcome of the last REAL request. A session eBay revoked
    * server-side is caught on the next real use, which flips lastKnown to false.
    */
-  async localStatus(): Promise<{ loggedIn: boolean; cookie: boolean; lastKnown: { loggedIn: boolean; at: number } | null }> {
+  async localStatus(): Promise<{
+    loggedIn: boolean;
+    cookie: boolean;
+    lastKnown: { loggedIn: boolean; at: number } | null;
+  }> {
     return this.run(async () => {
       await this.start();
       const now = Date.now() / 1000;
       const cs = await this.ctx!.cookies('https://www.ebay.com');
       const cookie = cs.some((c) => c.name === 'ebaysid' && (c.expires < 0 || c.expires > now));
-      return { loggedIn: cookie && this.lastKnown?.loggedIn !== false, cookie, lastKnown: this.lastKnown };
+      return {
+        loggedIn: cookie && this.lastKnown?.loggedIn !== false,
+        cookie,
+        lastKnown: this.lastKnown,
+      };
     });
   }
 

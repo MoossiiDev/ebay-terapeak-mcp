@@ -35,6 +35,7 @@
     "start": "npm run build && node dist/index.js",
     "dev": "tsc -w",
     "typecheck": "tsc --noEmit",
+    "test": "tsc && node --test test/*.test.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

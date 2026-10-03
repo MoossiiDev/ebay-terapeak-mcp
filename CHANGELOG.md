@@ -13,6 +13,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 - Dead-browser recovery: a closed context/page is dropped and relaunched on the next call.
 - `login.sh`: stops the service, opens a headed login on DISPLAY=:0, restarts the service. `EBAY_LOGIN_TIMEOUT_MIN` sets the wait.
 
+### Fixed
+- A session eBay revoked server-side no longer reads as an empty market. It returned JSON with no aggregates and no rows (identical to a genuine zero-result query) while `/health` still said `loggedIn:true` from the cookie. An empty first page now triggers one live Seller Hub check: logged out throws `NotLoggedInError` and flips `/health` `lastKnown` to false; signed in returns the zero with a "live check confirmed" note. `session_status` also records its result in `lastKnown`. Login hints point at `./login.sh`.
+- `npm test` (node:test over the built `dist/`) with fake-session tests for the empty/logged-out cases; CI runs it. Prettier-formatted `browser.ts`, `item.ts`, `server.ts` so `format:check` passes.
+
 ### Changed
 - `GET /health` is local-only: `ebaysid` cookie + last real request outcome; it no longer loads Seller Hub (a probe that navigates generates bot-like traffic on the account every 10 min). `session_status` stays the explicit live check.
 - Stock engine sends no spoofed User-Agent (a Windows/Chrome-124 string on Linux Chrome 149 mismatches client hints). Runs headed under Xvfb instead of headless.

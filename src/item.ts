@@ -16,7 +16,10 @@ export interface ItemDetail {
 }
 
 function meta(html: string, prop: string): string | null {
-  const re = new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']*)["']`, 'i');
+  const re = new RegExp(
+    `<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']*)["']`,
+    'i',
+  );
   const m = html.match(re);
   return m ? decode(m[1]) : null;
 }
@@ -59,8 +62,12 @@ export async function getItem(
     itemId,
     title: meta(html, 'og:title')?.replace(/ \| eBay$/, '') ?? null,
     status:
-      firstText(html, /<div[^>]+class="[^"]*ux-layout-section__textual-display--statusMessage[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ??
-      (/This listing (?:was ended|sold|ended)/i.exec(html)?.[0] ?? null),
+      firstText(
+        html,
+        /<div[^>]+class="[^"]*ux-layout-section__textual-display--statusMessage[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+      ) ??
+      /This listing (?:was ended|sold|ended)/i.exec(html)?.[0] ??
+      null,
     price: /x-price-primary[\s\S]{0,400}?((?:US |C |AU )?\$[\d,.]+)/.exec(html)?.[1] ?? null,
     condition: /condition"?>(?:<!--[^>]*-->)*([^<]{2,60})<!--/.exec(html)?.[1]?.trim() ?? null,
     summary: meta(html, 'og:description'),

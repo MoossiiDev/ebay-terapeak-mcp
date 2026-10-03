@@ -12,8 +12,13 @@
  *       exact phrase (quoted keywords), conditionId, minPrice/maxPrice, format
  *   - Client-side (the endpoint ignores/breaks on these, so we do them here):
  *       exclude terms (`-term` returns zero rows), sort, de-duplication
+ *
+ * An empty first page is ambiguous: a session eBay revoked server-side returns the
+ * same JSON shape (no aggregates, no rows) as a genuine zero-result query, while the
+ * cookie still looks valid. runSearch settles it with one live login check, so a
+ * logged-out session is an error, never an empty result.
  */
-import { EbaySession } from './browser.js';
+import { EbaySession, NotLoggedInError, LOGIN_HINT } from './browser.js';
 import {
   splitModules,
   parseAggregates,
@@ -252,9 +257,16 @@ export async function runSearch(opts: SearchOpts, session: EbaySession): Promise
       aggregates = parseAggregates(mods['aggregates']);
     }
     const sr = mods['searchResults'];
-    if (!sr) break;
-
-    const rows = parseResults(sr);
+    const rows = sr ? parseResults(sr) : [];
+    if (page === 0 && !aggregates && rows.length === 0) {
+      if (!(await session.isLoggedIn())) {
+        throw new NotLoggedInError(
+          `eBay session is logged out (the search came back empty and Seller Hub ` +
+            `redirects to sign-in). ${LOGIN_HINT}`,
+        );
+      }
+      notes.push('eBay returned no listings; a live check confirmed the session is signed in.');
+    }
     if (rows.length === 0) break;
 
     for (const r of rows) {

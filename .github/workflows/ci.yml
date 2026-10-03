@@ -25,6 +25,7 @@ jobs:
       - run: npm run format:check
       - run: npm run typecheck
       - run: npm run build
+      - run: node --test test/*.test.mjs
 
 # Note: exercising the tools requires a logged-in eBay Seller Hub browser
 # session, so there is no live health check in CI — run searches locally after

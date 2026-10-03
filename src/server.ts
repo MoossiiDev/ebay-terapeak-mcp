@@ -9,7 +9,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import http from 'node:http';
 import { z } from 'zod';
-import { EbaySession, NotLoggedInError } from './browser.js';
+import { EbaySession, NotLoggedInError, LOGIN_HINT } from './browser.js';
 import { runSearch, type SearchOpts, type Tab } from './core.js';
 import { getItem } from './item.js';
 
@@ -186,8 +186,17 @@ function buildServer(): McpServer {
       'what a listing actually says (e.g. mods, included accessories, flaws) that ' +
       'search titles leave out. One page load per call; keep volume modest.',
     {
-      item_id: z.string().regex(/^\d{6,20}$/, 'item_id must be digits only').describe('eBay item id (the number in /itm/<id>).'),
-      max_chars: z.number().int().min(200).max(20000).default(4000).describe('Truncate description text.'),
+      item_id: z
+        .string()
+        .regex(/^\d{6,20}$/, 'item_id must be digits only')
+        .describe('eBay item id (the number in /itm/<id>).'),
+      max_chars: z
+        .number()
+        .int()
+        .min(200)
+        .max(20000)
+        .default(4000)
+        .describe('Truncate description text.'),
     },
     async (args) => {
       try {
@@ -209,9 +218,7 @@ function buildServer(): McpServer {
         const loggedIn = await getSession().isLoggedIn();
         return toContent({
           loggedIn,
-          hint: loggedIn
-            ? 'Session is active.'
-            : 'Not signed in. Stop the server and run `npm run login`.',
+          hint: loggedIn ? 'Session is active.' : `Not signed in. ${LOGIN_HINT}`,
         });
       } catch (e) {
         return toError(e);

@@ -232,8 +232,12 @@ the full structured result; otherwise a compact table is printed.
 
 ## Troubleshooting
 
-- **`NotLoggedInError` / "non-JSON response"** — session expired or got flagged.
-  Stop the server, run `npm run login`, restart.
+- **`NotLoggedInError` / "non-JSON response" / "session is logged out"** — session
+  expired, got flagged, or eBay revoked it server-side (the `ebaysid` cookie can
+  still look valid). A revoked session returns empty JSON, so an empty first page
+  triggers one live Seller Hub check: logged out raises this error, signed in
+  returns the zero with a note saying it was verified. Run `./login.sh` (daemon) or
+  stop the server, run `npm run login`, restart.
 - **Headless getting blocked** — set `EBAY_MCP_HEADLESS=0` in the MCP server env.
 - **`profile ... already in use`** — the server and the login command can't run
   at the same time. Stop one.
