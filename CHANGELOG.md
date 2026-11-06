@@ -7,6 +7,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 ## [Unreleased] — MoossiiDev fork
 
 ### Added
+- Idle tab blanking: after `EBAY_IDLE_BLANK_MIN` minutes (default 10, `0` = off) with no page use, the shared tab is navigated to `about:blank` under the same lock the tool calls use, so it never interrupts a call. The browser and logged-in profile stay up; the next call reloads Seller Hub. A failed blank is logged and ignored.
+- One stderr line per tool call (`[tool] <name> <ms>ms ok|error(<ErrorName>) page=<origin+path>`, never keywords or item ids) and one per idle blank, so the service journal shows usage.
 - `get_item` tool: reads any item page (live or ended/sold) in the logged-in browser and returns title, status, price, condition, and seller description text (from the itm.ebaydesc.com iframe). eBay drops ended-listing descriptions after roughly 90 days, and only the summary is returned then. `EBAY_MCP_DEBUG_DIR` dumps raw item HTML for selector fixes.
 - HTTP daemon mode (`EBAY_MCP_PORT`): stateless Streamable HTTP on 127.0.0.1, one long-lived browser shared by every MCP client (a Chromium profile can only be opened by one process). `GET /health` returns `{ok, loggedIn}`.
 - `EBAY_MCP_ENGINE` switch: `playwright` (default, stock Chromium) or `cloak` (upstream CloakBrowser, now an optional dependency loaded lazily).
@@ -14,6 +16,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 - `login.sh`: stops the service, opens a headed login on DISPLAY=:0, restarts the service. `EBAY_LOGIN_TIMEOUT_MIN` sets the wait.
 
 ### Fixed
+- The Seller Hub tab no longer runs for the life of the service. It was opened on the first search and never left, and its scripts climbed to 2-4 CPU cores after about 9 days (4.5 CPU-days in one run) with no calls in the last 2.3 days. The page's own scripts are the likely cause (not yet proven); the idle blanking above removes the page, and the systemd unit also gets `CPUQuota=200%` as a cap. A failed blank drops the tab, and a mistyped `EBAY_IDLE_BLANK_MIN` falls back to 10 instead of turning the guard off.
 - A session eBay revoked server-side no longer reads as an empty market. It returned JSON with no aggregates and no rows (identical to a genuine zero-result query) while `/health` still said `loggedIn:true` from the cookie. An empty first page now triggers one live Seller Hub check: logged out throws `NotLoggedInError` and flips `/health` `lastKnown` to false; signed in returns the zero with a "live check confirmed" note. `session_status` also records its result in `lastKnown`. Login hints point at `./login.sh`.
 - `npm test` (node:test over the built `dist/`) with fake-session tests for the empty/logged-out cases; CI runs it. Prettier-formatted `browser.ts`, `item.ts`, `server.ts` so `format:check` passes.
 

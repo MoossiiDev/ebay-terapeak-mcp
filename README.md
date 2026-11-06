@@ -224,11 +224,24 @@ the full structured result; otherwise a compact table is printed.
 
 ## Configuration (env vars)
 
-| Var                 | Default                        | Purpose                                                 |
-| ------------------- | ------------------------------ | ------------------------------------------------------- |
-| `EBAY_MCP_PROFILE`  | `~/.ebay-research-mcp/profile` | Browser profile dir (holds your session).               |
-| `EBAY_MCP_HEADLESS` | `1`                            | Set `0` to run headed if bot detection blocks headless. |
-| `EBAY_MCP_TZ`       | `UTC`                          | Timezone string sent to eBay (e.g. `Asia/Jakarta`).     |
+| Var                   | Default                        | Purpose                                                       |
+| --------------------- | ------------------------------ | ------------------------------------------------------------- |
+| `EBAY_MCP_PROFILE`    | `~/.ebay-research-mcp/profile` | Browser profile dir (holds your session).                     |
+| `EBAY_MCP_HEADLESS`   | `1`                            | Set `0` to run headed if bot detection blocks headless.       |
+| `EBAY_MCP_TZ`         | `UTC`                          | Timezone string sent to eBay (e.g. `Asia/Jakarta`).           |
+| `EBAY_IDLE_BLANK_MIN` | `10`                           | Minutes idle before the tab goes to `about:blank`; `0` = off. |
+
+### Idle tab blanking
+
+The browser stays up for the life of the server, but the Seller Hub tab does not.
+After `EBAY_IDLE_BLANK_MIN` minutes (default 10) with no tool call, the tab is
+navigated to `about:blank`, which unloads eBay's page and its scripts. The login
+lives in the profile on disk, so nothing is lost: the next call reloads Seller Hub
+first, the same way the first call after a restart does. A Seller Hub tab left open
+for days kept running eBay's scripts and climbed to 2-4 CPU cores. Every tool call
+writes one line to stderr (`[tool] <name> <ms>ms ok|error(...) page=<origin+path>`,
+no keywords or item ids) and each blank writes an `[idle]` line, so in daemon mode
+`journalctl --user -u ebay-mcp` shows usage.
 
 ## Troubleshooting
 

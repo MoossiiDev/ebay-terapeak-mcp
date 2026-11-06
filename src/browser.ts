@@ -74,6 +74,33 @@ async function launch(headless: boolean): Promise<BrowserContext> {
   })) as unknown as BrowserContext;
 }
 
+/**
+ * Minutes of no page use before the tab is sent to about:blank (EBAY_IDLE_BLANK_MIN,
+ * default 10, 0 = never). A Seller Hub tab left open for days keeps running eBay's
+ * scripts and burned 2-4 CPU cores after ~9 days; a blank tab costs nothing.
+ */
+function idleBlankMsFromEnv(): number {
+  const raw = process.env.EBAY_IDLE_BLANK_MIN;
+  if (raw === undefined || raw.trim() === '') return 10 * 60_000;
+  const min = Number(raw);
+  if (!Number.isFinite(min) || min < 0) {
+    // A typo must not switch the guard off silently: fall back to the default.
+    console.error(`[idle] EBAY_IDLE_BLANK_MIN=${JSON.stringify(raw)} is not a number of minutes; using 10`);
+    return 10 * 60_000;
+  }
+  return min * 60_000; // 0 = off
+}
+
+/** origin + path of a URL, no query string or fragment (safe to log). */
+export function safeLocation(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.origin === 'null' ? `${u.protocol}${u.pathname}` : `${u.origin}${u.pathname}`;
+  } catch {
+    return '-';
+  }
+}
+
 export class EbaySession {
   private ctx: BrowserContext | null = null;
   private page: Page | null = null;
@@ -83,8 +110,15 @@ export class EbaySession {
   private chain: Promise<unknown> = Promise.resolve();
   /** Login state observed by the last REAL request (null = none yet). */
   private lastKnown: { loggedIn: boolean; at: number } | null = null;
+  /** Idle timer that blanks the tab; idleGen bumps on every page use so a blank
+   *  that was queued behind a newer call sees it is stale and skips. */
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private idleGen = 0;
 
-  constructor(private headless = true) {}
+  constructor(
+    private headless = true,
+    private idleBlankMs = idleBlankMsFromEnv(),
+  ) {}
 
   private async start(): Promise<void> {
     if (this.ctx) return;
@@ -116,6 +150,67 @@ export class EbaySession {
     return next as Promise<T>;
   }
 
+  /** Run `fn` exclusively AND as a use of the page: holds off the idle blank while
+   *  it runs and restarts the idle timer when it ends (success or error). */
+  private usePage<T>(fn: () => Promise<T>): Promise<T> {
+    return this.run(async () => {
+      this.cancelIdle();
+      try {
+        return await fn();
+      } finally {
+        this.armIdle();
+      }
+    });
+  }
+
+  private cancelIdle(): void {
+    this.idleGen++;
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = null;
+  }
+
+  private armIdle(): void {
+    this.cancelIdle();
+    if (this.idleBlankMs <= 0) return;
+    const gen = this.idleGen;
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = null;
+      // Through the same lock as the tool calls, so it never navigates mid-call.
+      void this.run(() => this.blankIfIdle(gen));
+    }, this.idleBlankMs);
+    // Never keep the process alive just for this timer (CLI / stdio exits).
+    this.idleTimer.unref?.();
+  }
+
+  /** Send the tab to about:blank, dropping the Seller Hub page and its memory. The
+   *  browser and profile stay up; ensureReady reloads Seller Hub on the next call. */
+  private async blankIfIdle(gen: number): Promise<void> {
+    if (gen !== this.idleGen) return; // a call ran after this timer was set
+    const page = this.page;
+    if (!page || page.isClosed() || page.url() === 'about:blank') return;
+    const from = safeLocation(page.url());
+    try {
+      await page.goto('about:blank');
+      console.error(`[idle] blanked tab after ${this.idleBlankMs / 60_000} min idle (was ${from})`);
+    } catch (e) {
+      console.error(`[idle] blank failed, dropping the tab: ${e instanceof Error ? e.message : String(e)}`);
+      // A tab that can't navigate (e.g. its renderer crashed) still reports the Seller Hub
+      // URL, so ensureReady would reuse it. Drop it; the next call opens a fresh tab.
+      try {
+        await page.close();
+      } catch {
+        /* already gone */
+      }
+      if (this.page === page) this.page = null;
+    }
+  }
+
+  /** origin + path of the tab right now, for the per-call log line. */
+  pageLocation(): string {
+    const page = this.page;
+    return page && !page.isClosed() ? safeLocation(page.url()) : '-';
+  }
+
   private async ensureReady(): Promise<void> {
     await this.start();
     if (!this.page || this.page.isClosed()) this.page = await this.ctx!.newPage();
@@ -132,7 +227,7 @@ export class EbaySession {
   /** LIVE check (loads Seller Hub once): true if the profile is logged in. Records
    *  the outcome in lastKnown so /health reflects it. */
   async isLoggedIn(): Promise<boolean> {
-    return this.run(async () => {
+    return this.usePage(async () => {
       await this.start();
       await this.page!.goto(RESEARCH_URL, { waitUntil: 'domcontentloaded' });
       const loggedIn = !this.page!.url().includes('signin.ebay.com');
@@ -146,7 +241,7 @@ export class EbaySession {
    * the raw response body (concatenated JSON modules).
    */
   async fetchSearch(queryString: string): Promise<string> {
-    return this.run(async () => {
+    return this.usePage(async () => {
       await this.ensureReady();
       const url = `${SEARCH_API}?${queryString}`;
       const res = await this.page!.evaluate(async (u: string) => {
@@ -186,7 +281,7 @@ export class EbaySession {
   ): Promise<{ html: string; descHtml: string | null; status: number }> {
     // Digits only: the id is interpolated into a URL and a debug file path.
     if (!/^\d{6,20}$/.test(itemId)) throw new Error(`Invalid eBay item id: ${itemId}`);
-    return this.run(async () => {
+    return this.usePage(async () => {
       await this.ensureReady();
       const res = await this.page!.evaluate(
         async (u: string) => {
@@ -236,6 +331,7 @@ export class EbaySession {
   }
 
   async close(): Promise<void> {
+    this.cancelIdle();
     await this.ctx?.close();
     this.ctx = null;
     this.page = null;

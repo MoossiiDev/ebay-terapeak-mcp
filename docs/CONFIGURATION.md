@@ -10,11 +10,12 @@ For installing and building, see **[Setup](../README.md#setup)** in the README.
 
 All optional. Set them in your MCP client's **`env`** block, or copy `.env.example` to `.env` when developing from a checkout.
 
-| Variable            | Default                        | Description                                             |
-| ------------------- | ------------------------------ | ------------------------------------------------------- |
-| `EBAY_MCP_PROFILE`  | `~/.ebay-research-mcp/profile` | Browser profile dir (holds your session).               |
-| `EBAY_MCP_HEADLESS` | `1`                            | Set `0` to run headed if bot detection blocks headless. |
-| `EBAY_MCP_TZ`       | `UTC`                          | Timezone string sent to eBay (e.g. `Asia/Jakarta`).     |
+| Variable              | Default                        | Description                                                   |
+| --------------------- | ------------------------------ | ------------------------------------------------------------- |
+| `EBAY_MCP_PROFILE`    | `~/.ebay-research-mcp/profile` | Browser profile dir (holds your session).                     |
+| `EBAY_MCP_HEADLESS`   | `1`                            | Set `0` to run headed if bot detection blocks headless.       |
+| `EBAY_MCP_TZ`         | `UTC`                          | Timezone string sent to eBay (e.g. `Asia/Jakarta`).           |
+| `EBAY_IDLE_BLANK_MIN` | `10`                           | Minutes idle before the tab goes to `about:blank`; `0` = off. |
 
 ---
 

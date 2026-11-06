@@ -29,7 +29,7 @@ reference/
 
 ## How the endpoint is driven
 
-The server wraps eBay's internal endpoint `GET /sh/research/api/search` and keeps a **persistent, logged-in [CloakBrowser](https://github.com/CloakHQ/cloakbrowser) session** (a fingerprint-patched Chromium) alive so requests are made from inside a real browser. That carries your session cookies, passes eBay's bot detection (Akamai + perfdrive), and lets the browser rotate the short-lived anti-bot cookies itself. CloakBrowser's context is Playwright-API-compatible, so `playwright` is kept only for its types.
+The server wraps eBay's internal endpoint `GET /sh/research/api/search` and keeps a **persistent, logged-in [CloakBrowser](https://github.com/CloakHQ/cloakbrowser) session** (a fingerprint-patched Chromium) alive so requests are made from inside a real browser. The tab is sent to `about:blank` after `EBAY_IDLE_BLANK_MIN` idle minutes (default 10) while the browser and profile stay up; the next call reloads Seller Hub. That carries your session cookies, passes eBay's bot detection (Akamai + perfdrive), and lets the browser rotate the short-lived anti-bot cookies itself. CloakBrowser's context is Playwright-API-compatible, so `playwright` is kept only for its types.
 
 The endpoint honors some refinements as query params (server-side: `exact`, `condition`, price range, `format`) and ignores others (client-side here: `exclude`, `sort`, de-dup). See the README's **Filters** section.
 

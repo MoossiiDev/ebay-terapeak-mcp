@@ -143,6 +143,25 @@ function toError(e: unknown) {
   return { content: [{ type: 'text' as const, text: msg }], isError: true };
 }
 
+/**
+ * Run one tool call and write one line to stderr (the service journal): tool name,
+ * duration, ok/error, and the tab's final origin+path. Never logs the query string,
+ * keywords or item id.
+ */
+async function logged(tool: string, fn: () => Promise<unknown>) {
+  const t0 = Date.now();
+  let status = 'ok';
+  try {
+    return toContent(await fn());
+  } catch (e) {
+    status = `error(${e instanceof Error ? e.name : 'unknown'})`;
+    return toError(e);
+  } finally {
+    const page = session?.pageLocation() ?? '-';
+    console.error(`[tool] ${tool} ${Date.now() - t0}ms ${status} page=${page}`);
+  }
+}
+
 function buildServer(): McpServer {
   const server = new McpServer({
     name: 'ebay-research-mcp',
@@ -156,13 +175,10 @@ function buildServer(): McpServer {
       'plus per-listing rows. Supports server-side filters (exact phrase, condition, ' +
       'price range, format) and client-side sort/exclude. Paginates up to max_results.',
     searchInputShape,
-    async (args) => {
-      try {
-        return toContent(await runSearch(toOpts(args as SearchArgs, 'SOLD'), getSession()));
-      } catch (e) {
-        return toError(e);
-      }
-    },
+    async (args) =>
+      logged('search_sold_listings', () =>
+        runSearch(toOpts(args as SearchArgs, 'SOLD'), getSession()),
+      ),
   );
 
   server.tool(
@@ -170,13 +186,10 @@ function buildServer(): McpServer {
     'Search eBay ACTIVE listings (Terapeak Product Research). Same shape and ' +
       'filters as search_sold_listings but for currently-listed items.',
     searchInputShape,
-    async (args) => {
-      try {
-        return toContent(await runSearch(toOpts(args as SearchArgs, 'ACTIVE'), getSession()));
-      } catch (e) {
-        return toError(e);
-      }
-    },
+    async (args) =>
+      logged('search_active_listings', () =>
+        runSearch(toOpts(args as SearchArgs, 'ACTIVE'), getSession()),
+      ),
   );
 
   server.tool(
@@ -198,13 +211,7 @@ function buildServer(): McpServer {
         .default(4000)
         .describe('Truncate description text.'),
     },
-    async (args) => {
-      try {
-        return toContent(await getItem(args.item_id, getSession(), args.max_chars));
-      } catch (e) {
-        return toError(e);
-      }
-    },
+    async (args) => logged('get_item', () => getItem(args.item_id, getSession(), args.max_chars)),
   );
 
   server.tool(
@@ -213,17 +220,14 @@ function buildServer(): McpServer {
       'Only call when a real search failed or the user asks; routine health uses the ' +
       'local-only GET /health. If not logged in, run login.sh.',
     {},
-    async () => {
-      try {
+    async () =>
+      logged('session_status', async () => {
         const loggedIn = await getSession().isLoggedIn();
-        return toContent({
+        return {
           loggedIn,
           hint: loggedIn ? 'Session is active.' : `Not signed in. ${LOGIN_HINT}`,
-        });
-      } catch (e) {
-        return toError(e);
-      }
-    },
+        };
+      }),
   );
 
   return server;
